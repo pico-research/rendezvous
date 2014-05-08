@@ -43,66 +43,57 @@ class SSEStream(object):
 
 
 class Channels(Resource):
-    def __init__(self, streams):
+    def __init__(self, channels):
         Resource.__init__(self)
-        self.streams = streams
+        self.channels = channels
 
     def getChild(self, name, request):
-        try:
-            stream = self.streams[name]
-            if stream.finished:
-                self.streams.pop(name, None)
-                return NoResource()
-            else:
-                return Channel(name, stream)
-        except KeyError:
+        if name in self.channels:
+            return Channel(name, self.channels[name])
+        else:
             return NoResource()
-        '''No longer appropriate with listen method
-        finally:
-        self.streams.pop(name, None)
-        '''
 
 
 class NewChannel(Resource):
-    def __init__(self, streams, fixed):
+    def __init__(self, channels, fixed):
         Resource.__init__(self)
-        self.streams = streams
+        self.channels = channels
         self.fixed = fixed
 
     def render_GET(self, request):
         print("NewChannel.render_GET start")
         try:
             # Get channel name, either fixed for debugging or random
-            channel_name = self.fixed or uuid.uuid4().hex
-
-            # Get or create stream
-            if channel_name in self.streams:
-                stream = self.streams.get(channel_name, False)
-                stream.listen(request)
+            if self.fixed:
+                channel_name = self.fixed
             else:
-                stream = SSEStream(request)
-                self.streams[channel_name] = stream
+                channel_name = uuid.uuid4().hex
+            
+            # Initialize list of channel listeners
+            if channel_name not in self.channels:
+                self.channels[channel_name] = set() # RACE CONDITION
 
-            stream.send(event="channel-created", data=channel_name)
             print("Created new channel '{}'".format(channel_name))
-            return NOT_DONE_YET
+            return channel_name
         finally:
             print("NewChannel.render_GET finish")
 
 
 class Channel(Resource):
-    def __init__(self, name, stream):
+    def __init__(self, name, listeners):
         Resource.__init__(self)
         self.name = name
-        self.stream = stream
+        self.listeners = listeners
 
     def render_POST(self, request):
         print("Channel.render_POST start")
         try:
             data = request.args['data'][0]
+            for l in self.listeners:
+                l.write(data)
+                l.finish()
+
             print("Data posted to channel '{}': {}".format(self.name, data))
-            self.stream.send(data)
-            self.stream.finish()
             return ""
         finally:
             print("Channel.render_POST finish")
@@ -110,7 +101,9 @@ class Channel(Resource):
     def render_GET(self, request):
         print("Channel.render_POST start")
         try:
-            self.stream.listen(request)
+            # Add current request to set of listeners
+            self.listeners.add(request)
+
             print("New listener on channel '{}'".format(self.name))
             return NOT_DONE_YET
         finally:
@@ -123,11 +116,11 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--fixed', help='fixed channel name (debug only)')
     args = parser.parse_args()
 
-    streams = dict()
+    channels = dict()
 
     root = Resource()
-    root.putChild("channel", Channels(streams))
-    root.putChild("new", NewChannel(streams, args.fixed))
+    root.putChild("channel", Channels(channels))
+    root.putChild("new", NewChannel(channels, args.fixed))
 
     factory = Site(root)
 
