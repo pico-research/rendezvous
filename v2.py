@@ -6,21 +6,34 @@ import uuid
 import argparse
 
 
+_REQUEST_TIMEOUT = 3
+_CHANNEL_CLOSE_TIMEOUT = 20
+assert(_REQUEST_TIMEOUT < _CHANNEL_CLOSE_TIMEOUT)
+
+
+def _close_channel(channels, channel_name):
+    channels[channel_name].close()
+    del channels[channel_name]
+
+
 class NewChannelResource(Resource):
-    def __init__(self, channels, fixed):
+    def __init__(self, channels, reactor, fixed):
         Resource.__init__(self)
-        self.channels = channels
-        self.fixed = fixed
+        self._channels = channels
+        self._reactor = reactor
+        self._fixed = fixed
 
     def render_GET(self, request):
         # Get channel name, either fixed for debugging or random
-        if self.fixed:
-            name = self.fixed
+        if self._fixed:
+            name = self._fixed
         else:
             name = uuid.uuid4().hex
             
-        channel = Channel(name)
-        self.channels[name] = channel
+        channel = Channel(name, self._reactor, _REQUEST_TIMEOUT)
+        channel.close_call = self._reactor.callLater(
+            _CHANNEL_CLOSE_TIMEOUT, _close_channel, self._channels, name)
+        self._channels[name] = channel
         print('Created new channel: ' + str(channel))
         return name
 
@@ -42,6 +55,7 @@ class ChannelResource(Resource):
     def __init__(self, channel):
         Resource.__init__(self)
         self._channel = channel
+        self._channel.close_call.reset(_CHANNEL_CLOSE_TIMEOUT)
 
     def render_POST(self, request):
         print("Write to channel '{}': {}".format(
@@ -73,7 +87,7 @@ if __name__ == "__main__":
 
     root = Resource()
     root.putChild("channel", ChannelsResource(channels))
-    root.putChild("new", NewChannelResource(channels, args.fixed))
+    root.putChild("new", NewChannelResource(channels, reactor, args.fixed))
 
     factory = Site(root)
 
