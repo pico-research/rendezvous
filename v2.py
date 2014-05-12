@@ -1,13 +1,15 @@
 from channel import Channel
+from response import Ok
 from twisted.web.server import Site
 from twisted.web.resource import Resource, NoResource
+from twisted.internet.error import AlreadyCalled, AlreadyCancelled
 from twisted.internet import reactor
 import uuid
 import argparse
 
 
-_REQUEST_TIMEOUT = 3
-_CHANNEL_CLOSE_TIMEOUT = 20
+_REQUEST_TIMEOUT = 10
+_CHANNEL_CLOSE_TIMEOUT = 30
 assert(_REQUEST_TIMEOUT < _CHANNEL_CLOSE_TIMEOUT)
 
 
@@ -46,24 +48,39 @@ class ChannelsResource(Resource):
     def getChild(self, name, request):
         if name in self.channels:
             # RACE?
-            return ChannelResource(self.channels[name])
+            return ChannelResource(self.channels[name], self.channels)
         else:
             return NoResource()
 
 
 class ChannelResource(Resource):
-    def __init__(self, channel):
+    def __init__(self, channel, channels):
         Resource.__init__(self)
+        self._channels = channels
         self._channel = channel
         self._channel.close_call.reset(_CHANNEL_CLOSE_TIMEOUT)
 
     def render_POST(self, request):
-        print("Write to channel '{}': {}".format(
-                self._channel.name, request.args['data'][0]))
-        print(self._channel)
-        r = self._channel.write(request)
-        print(self._channel)
-        return r
+        if 'data' in request.args:
+            print("Write to channel '{}': {}".format(
+                    self._channel.name, request.args['data'][0]))
+            print(self._channel)
+            r = self._channel.write(request)
+            print(self._channel)
+            return r
+        elif 'close' in request.args:
+            print("Closing channel '{}'".format(self._channel.name))
+            try:
+                # This is wierd
+                self._channel.close_call.cancel()
+                _close_channel(channels, self._channel.name)
+            except (AlreadyCancelled, AlreadyCalled):
+                # Fine
+                pass
+            return Ok().render(request)
+        else:
+            return NoResource().render(request)
+            
 
     def render_GET(self, request):
         print("Read from channel '{}'".format(self._channel.name))

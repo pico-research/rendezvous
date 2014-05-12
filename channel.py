@@ -1,8 +1,8 @@
 from twisted.web.server import NOT_DONE_YET
 from twisted.web.resource import NoResource
 from twisted.internet.error import AlreadyCalled, AlreadyCancelled
-from helpers import error, success
-from errors import Timeout
+from helpers import error, success, closed
+from response import Data, Ok, Timeout, Closed
 
 
 _PEER_DISCONNECTED = error(1, 'peer disconnected whilst writing data')
@@ -53,7 +53,7 @@ class Channel(object):
             pass
 
     def close(self):
-        print('Closing channel to free resources')
+        self.cancel_delayed_timeout()
         self.state.close()
 
     def __str__(self):
@@ -68,7 +68,7 @@ class ChannelState(object):
 class Standby(ChannelState):
     def __init__(self, channel):
         super(Standby, self).__init__(channel)
-        self._channel.cancel_delayed_timeout
+        self._channel.cancel_delayed_timeout()
 
     def write(self, request):
         self._channel.state = WriteWaiting(self._channel, request)
@@ -107,16 +107,20 @@ class WriteWaiting(ChannelState):
         return NoResource().render(request)
 
     def read(self, request):
+        data = self._write_request.args['data'][0]
+
+        # Write to reader
+        request.write(Data(data).render(request))
+        request.finish()
         try:
-            data = self._write_request.args['data'][0]
-            self._write_request.finish(success())
+            self._write_request.write(Ok().render(self._write_request))
         except RuntimeError:
-            # The waiting write request was closed
-            return _PEER_DISCONNECTED
-        else:
-            return success(data)
-        finally:
-            self._channel.state = Standby(self._channel)
+            # Waiting write request disconnected
+            # Nothing to be done
+            pass
+
+        self._channel.state = Standby(self._channel)
+        return ''
 
     def disconnect(self, err):
         print('Waiting write request closed')
@@ -135,7 +139,7 @@ class WriteWaiting(ChannelState):
 
     def close(self):
         try:
-            self._write_request.write(_CHANNEL_CLOSED)
+            self._write_request.write(Closed().render(self._write_request))
             self._write_request.finish()
         except RuntimeError:
             # The waiting write request was closed remotely
@@ -155,16 +159,13 @@ class ReadWaiting(ChannelState):
     def write(self, request):
         try:
             data = request.args['data'][0]
-            response = success(data)
-            self._read_request.setHeader('Content-Type', 'text/json')
-            self._read_request.setHeader('Content-Length', len(response))
-            self._read_request.write(response)
+            self._read_request.write(Data(data).render(self._read_request))
             self._read_request.finish()
         except RuntimeError:
             # The waiting read request was closed remotely
             return _PEER_DISCONNECTED
         else:
-            return success()
+            return Ok().render(request)
         finally:
             self._channel.state = Standby(self._channel)
 
@@ -189,7 +190,7 @@ class ReadWaiting(ChannelState):
 
     def close(self):
         try:
-            self._read_request.write(_CHANNEL_CLOSED)
+            self._read_request.write(Closed().render(self._read_request))
             self._read_request.finish()
         except RuntimeError:
             # The waiting read request was closed remotely

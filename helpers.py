@@ -10,3 +10,6 @@ def success(data=None):
     if data:
         d['data'] = data
     return json.dumps(d) + '\n'
+
+def closed():
+    return json.dumps({'status': 'success', 'code': -1}) + '\n'
