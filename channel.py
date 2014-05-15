@@ -1,3 +1,4 @@
+import threading
 from twisted.web.server import NOT_DONE_YET
 from twisted.web.resource import NoResource
 from twisted.internet.error import AlreadyCalled, AlreadyCancelled
@@ -14,23 +15,28 @@ class Channel(object):
     def __init__(self, name, reactor, timeout_delay):
         self.name = name
         self.state = Standby(self)
+        self.lock = threading.Lock()
 
         self._timeout_delay = timeout_delay
         self._reactor = reactor
         self._timeout_call = None
 
     def write(self, request):
-        return self.state.write(request)
+        with self.lock:
+            return self.state.write(request)
 
     def read(self, request):
-        return self.state.read(request)
+        with self.lock:
+            return self.state.read(request)
 
     def disconnect(self, err):
-        self.state.disconnect(err)
+        with self.lock:
+            return self.state.disconnect(err)
 
     def timeout(self):
         self.cancel_delayed_timeout()
-        self.state.timeout()
+        with self.lock:
+            self.state.timeout()
 
     def delayed_timeout(self):
         if self._timeout_delay > 0:
@@ -54,7 +60,8 @@ class Channel(object):
 
     def close(self):
         self.cancel_delayed_timeout()
-        self.state.close()
+        with self.lock:
+            self.state.close()
 
     def __str__(self):
         return "Channel '{}' with state: {}".format(self.name, self.state)
@@ -111,13 +118,13 @@ class WriteWaiting(ChannelState):
 
         # Write to reader
         request.write(Data(data).render(request))
-        request.finish()
         try:
             self._write_request.write(Ok().render(self._write_request))
+            self._write_request.finish()
         except RuntimeError:
             # Waiting write request disconnected
             # Nothing to be done
-            pass
+            print("Runtime error!")
 
         self._channel.state = Standby(self._channel)
         return ''

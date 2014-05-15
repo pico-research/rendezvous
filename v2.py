@@ -9,13 +9,15 @@ import argparse
 
 
 _REQUEST_TIMEOUT = 10
-_CHANNEL_CLOSE_TIMEOUT = 30
+_CHANNEL_CLOSE_TIMEOUT = 15
 assert(_REQUEST_TIMEOUT < _CHANNEL_CLOSE_TIMEOUT)
 
 
-def _close_channel(channels, channel_name):
-    channels[channel_name].close()
-    del channels[channel_name]
+def _close_channel(channel, channels):
+    print("Closing channel '{}'".format(channel.name))
+    #channel.close_call.cancel()
+    channel.close()
+    del channels[channel.name]
 
 
 class NewChannelResource(Resource):
@@ -31,10 +33,14 @@ class NewChannelResource(Resource):
             name = self._fixed
         else:
             name = uuid.uuid4().hex
+
+        existing = self._channels.get(name, None)
+        if existing:
+            _close_channel(existing, self._channels)
             
         channel = Channel(name, self._reactor, _REQUEST_TIMEOUT)
-        channel.close_call = self._reactor.callLater(
-            _CHANNEL_CLOSE_TIMEOUT, _close_channel, self._channels, name)
+        #channel.close_call = self._reactor.callLater(
+        #    _CHANNEL_CLOSE_TIMEOUT, _close_channel, self._channels, name)
         self._channels[name] = channel
         print('Created new channel: ' + str(channel))
         return name
@@ -46,11 +52,12 @@ class ChannelsResource(Resource):
         self.channels = channels
 
     def getChild(self, name, request):
-        if name in self.channels:
-            # RACE?
-            return ChannelResource(self.channels[name], self.channels)
-        else:
+        channel = self.channels.get(name, None)
+        if channel is None:
             return NoResource()
+        else:
+            #channel.close_call.reset(_CHANNEL_CLOSE_TIMEOUT)
+            return ChannelResource(channel, self.channels)
 
 
 class ChannelResource(Resource):
@@ -58,7 +65,6 @@ class ChannelResource(Resource):
         Resource.__init__(self)
         self._channels = channels
         self._channel = channel
-        self._channel.close_call.reset(_CHANNEL_CLOSE_TIMEOUT)
 
     def render_POST(self, request):
         if 'data' in request.args:
