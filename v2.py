@@ -9,7 +9,7 @@ import argparse
 
 
 _REQUEST_TIMEOUT = 10
-_CHANNEL_CLOSE_TIMEOUT = 15
+_CHANNEL_CLOSE_TIMEOUT = 1800
 assert(_REQUEST_TIMEOUT < _CHANNEL_CLOSE_TIMEOUT)
 
 
@@ -115,5 +115,5 @@ if __name__ == "__main__":
     factory = Site(root)
 
     print('Starting rendezvous server on port {}...'.format(args.port))
-    reactor.listenTCP(8080, factory)
+    reactor.listenTCP(args.port, factory)
     reactor.run()
