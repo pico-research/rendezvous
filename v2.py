@@ -8,7 +8,7 @@ import uuid
 import argparse
 
 
-_REQUEST_TIMEOUT = 4 # nginx default is 60, and must be less.
+_REQUEST_TIMEOUT = 40 # nginx default is 60, and must be less.
 _CHANNEL_CLOSE_TIMEOUT = 1800
 _CHANNEL_CLOSE_ENABLED = True
 
