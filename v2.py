@@ -46,7 +46,7 @@ class NewChannelResource(Resource):
         channel = Channel(name, self._reactor, _REQUEST_TIMEOUT)
         if _CHANNEL_CLOSE_ENABLED:
             channel.close_call = self._reactor.callLater(
-               _CHANNEL_CLOSE_TIMEOUT, _close_channel, self._channels, name)
+               _CHANNEL_CLOSE_TIMEOUT, _close_channel, channel, self._channels)
         self._channels[name] = channel
         print('Created new channel: ' + str(channel))
         return name
