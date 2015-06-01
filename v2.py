@@ -41,6 +41,7 @@ class NewChannelResource(Resource):
         channel = Channel(name, self._reactor, _REQUEST_TIMEOUT)
         #channel.close_call = self._reactor.callLater(
         #    _CHANNEL_CLOSE_TIMEOUT, _close_channel, self._channels, name)
+        channel.close_call = None
         self._channels[name] = channel
         print('Created new channel: ' + str(channel))
         return name
@@ -66,34 +67,35 @@ class ChannelResource(Resource):
         self._channels = channels
         self._channel = channel
 
+    # Write
     def render_POST(self, request):
-        if 'data' in request.args:
-            print("Write to channel '{}': {}".format(
-                    self._channel.name, request.args['data'][0]))
-            print(self._channel)
-            r = self._channel.write(request)
-            print(self._channel)
-            return r
-        elif 'close' in request.args:
-            print("Closing channel '{}'".format(self._channel.name))
-            try:
-                # This is wierd
-                self._channel.close_call.cancel()
-                _close_channel(channels, self._channel.name)
-            except (AlreadyCancelled, AlreadyCalled):
-                # Fine
-                pass
-            return Ok().render(request)
-        else:
-            return NoResource().render(request)
-            
-
+        data = request.content.read()
+        print("Write to channel '{}': {}".format(self._channel.name, data))
+        print(self._channel)
+        r = self._channel.write(request, data)
+        print(self._channel)
+        return r
+        
+    # Read
     def render_GET(self, request):
         print("Read from channel '{}'".format(self._channel.name))
         print(self._channel)
         r = self._channel.read(request)
         print(self._channel)
         return r
+
+    # Close channel
+    def render_DELETE(self, request):
+        print("Closing channel '{}'".format(self._channel.name))
+        try:
+            # This is wierd
+            if self._channel.close_call:
+                self._channel.close_call.cancel()
+            _close_channel(self._channel, channels)
+        except (AlreadyCancelled, AlreadyCalled):
+            # Fine
+            pass
+        return Ok().render(request)
                 
 
 if __name__ == "__main__":
@@ -115,5 +117,5 @@ if __name__ == "__main__":
     factory = Site(root)
 
     print('Starting rendezvous server on port {}...'.format(args.port))
-    reactor.listenTCP(8080, factory)
+    reactor.listenTCP(args.port, factory)
     reactor.run()

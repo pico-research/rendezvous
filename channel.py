@@ -21,9 +21,9 @@ class Channel(object):
         self._reactor = reactor
         self._timeout_call = None
 
-    def write(self, request):
+    def write(self, request, data):
         with self.lock:
-            return self.state.write(request)
+            return self.state.write(request, data)
 
     def read(self, request):
         with self.lock:
@@ -77,8 +77,8 @@ class Standby(ChannelState):
         super(Standby, self).__init__(channel)
         self._channel.cancel_delayed_timeout()
 
-    def write(self, request):
-        self._channel.state = WriteWaiting(self._channel, request)
+    def write(self, request, data):
+        self._channel.state = WriteWaiting(self._channel, request, data)
         return NOT_DONE_YET
 
     def read(self, request):
@@ -99,25 +99,31 @@ class Standby(ChannelState):
 
 
 class WriteWaiting(ChannelState):
-    def __init__(self, channel, write_request):
+    def __init__(self, channel, write_request, data):
         super(WriteWaiting, self).__init__(channel)
+
+        # Keep a reference to the writing request
         self._write_request = write_request
         write_request.notifyFinish().addErrback(self._channel.disconnect)
+        
+        # Store the written data
+        self._data = data
+
+        # Start the timeout
         self._channel.delayed_timeout()
 
     def __str__(self):
-        data = self._write_request.args['data'][0]
-        return "WriteWaiting '{}'".format(data)
+        return "WriteWaiting '{}'".format(self._data)
 
     def write(self, request):
         # No state change
         return NoResource().render(request)
 
-    def read(self, request):
-        data = self._write_request.args['data'][0]
+    def read(self, read_request):
+        data = self._data
 
         # Write to reader
-        request.write(Data(data).render(request))
+        read_request.write(Data(data).render(read_request))
         try:
             self._write_request.write(Ok().render(self._write_request))
             self._write_request.finish()
@@ -163,16 +169,15 @@ class ReadWaiting(ChannelState):
     def __str__(self):
         return 'ReadWaiting'
 
-    def write(self, request):
+    def write(self, write_request, data):
         try:
-            data = request.args['data'][0]
             self._read_request.write(Data(data).render(self._read_request))
             self._read_request.finish()
         except RuntimeError:
             # The waiting read request was closed remotely
             return _PEER_DISCONNECTED
         else:
-            return Ok().render(request)
+            return Ok().render(write_request)
         finally:
             self._channel.state = Standby(self._channel)
 
