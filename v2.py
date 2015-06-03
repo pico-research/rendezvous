@@ -8,14 +8,19 @@ import uuid
 import argparse
 
 
-_REQUEST_TIMEOUT = 60
-_CHANNEL_CLOSE_TIMEOUT = 120
+_REQUEST_TIMEOUT = 40 # nginx default is 60, and must be less.
+_CHANNEL_CLOSE_TIMEOUT = 1800
+_CHANNEL_CLOSE_ENABLED = True
+
 assert(_REQUEST_TIMEOUT < _CHANNEL_CLOSE_TIMEOUT)
 
 
 def _close_channel(channel, channels):
-    print("Closing channel '{}'".format(channel.name))
-    #channel.close_call.cancel()
+    #If a global channel timeout on that channel is set, cancel it.
+    try:
+        channel.close_call.cancel()
+    except AttributeError:
+        pass
     channel.close()
     del channels[channel.name]
 
@@ -39,9 +44,9 @@ class NewChannelResource(Resource):
             _close_channel(existing, self._channels)
             
         channel = Channel(name, self._reactor, _REQUEST_TIMEOUT)
-        #channel.close_call = self._reactor.callLater(
-        #    _CHANNEL_CLOSE_TIMEOUT, _close_channel, self._channels, name)
-        channel.close_call = None
+        if _CHANNEL_CLOSE_ENABLED:
+            channel.close_call = self._reactor.callLater(
+               _CHANNEL_CLOSE_TIMEOUT, _close_channel, channel, self._channels)
         self._channels[name] = channel
         print('Created new channel: ' + str(channel))
         return name
@@ -88,10 +93,7 @@ class ChannelResource(Resource):
     def render_DELETE(self, request):
         print("Closing channel '{}'".format(self._channel.name))
         try:
-            # This is wierd
-            if self._channel.close_call:
-                self._channel.close_call.cancel()
-            _close_channel(self._channel, channels)
+            _close_channel(self._channel, self._channels)
         except (AlreadyCancelled, AlreadyCalled):
             # Fine
             pass
