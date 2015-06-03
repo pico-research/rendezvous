@@ -22,11 +22,9 @@ class Data(Resource):
         self._data = data
 
     def render(self, request):
-        response = json.dumps(
-            {'status': 'ok',
-             'code': 0,
-             'data': self._data}) + '\n'
-        return _with_json_headers(request, response)
+        request.setHeader('Content-Type', 'application/octet-stream')
+        request.setHeader('Content-Length', len(self._data))
+        return self._data
 
 
 class Closed(Resource):
