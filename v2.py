@@ -90,6 +90,11 @@ class ChannelResource(Resource):
         print(self._channel)
         r = self._channel.write(request, data)
         print(self._channel)
+
+        # This header lets JavaScripts on other websites use the results of
+        # this resource
+        request.setHeader('Access-Control-Allow-Origin', '*')
+
         return r
         
     # Read
@@ -98,6 +103,11 @@ class ChannelResource(Resource):
         print(self._channel)
         r = self._channel.read(request)
         print(self._channel)
+
+        # This header lets JavaScripts on other websites use the results of
+        # this resource
+        request.setHeader('Access-Control-Allow-Origin', '*')
+
         return r
 
     # Close channel
@@ -108,6 +118,11 @@ class ChannelResource(Resource):
         except (AlreadyCancelled, AlreadyCalled):
             # Fine
             pass
+
+        # This header lets JavaScripts on other websites use the results of
+        # this resource
+        request.setHeader('Access-Control-Allow-Origin', '*')
+
         return Ok().render(request)
                 
 
