@@ -8,10 +8,11 @@ import uuid
 import argparse
 
 
-_REQUEST_TIMEOUT = 40 # nginx default is 60, and must be less.
+_REQUEST_TIMEOUT = 40 
 _CHANNEL_CLOSE_TIMEOUT = 1800
 _CHANNEL_CLOSE_ENABLED = True
 
+assert(_REQUEST_TIMEOUT < 60) # nginx default is 60, and this must be less.
 assert(_REQUEST_TIMEOUT < _CHANNEL_CLOSE_TIMEOUT)
 
 
@@ -39,15 +40,25 @@ class NewChannelResource(Resource):
         else:
             name = uuid.uuid4().hex
 
+        # Close any existing channel of the same name
+        # TODO: Is this a good idea?
         existing = self._channels.get(name, None)
         if existing:
             _close_channel(existing, self._channels)
-            
-        channel = Channel(name, self._reactor, _REQUEST_TIMEOUT)
+        
+        # Make the new channel
+        channel = Channel(name, self._reactor, _REQUEST_TIMEOUT) 
+        self._channels[name] = channel
+
+        # Make the long-term inactivity close call
         if _CHANNEL_CLOSE_ENABLED:
             channel.close_call = self._reactor.callLater(
                _CHANNEL_CLOSE_TIMEOUT, _close_channel, channel, self._channels)
-        self._channels[name] = channel
+
+        # This header lets JavaScripts on other websites use the results of
+        # this resource
+        request.setHeader('Access-Control-Allow-Origin', '*')
+
         print('Created new channel: ' + str(channel))
         return name
 
